@@ -1,0 +1,100 @@
+### Ví dụ gọi API (dùng với REST Client của VS Code / IntelliJ HTTP Client)
+### Đổi @token bằng giá trị "token" trả về từ bước đăng nhập.
+
+@host = http://localhost:8080
+
+### 1. Đăng nhập (admin)
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "matkhau_admin"
+}
+
+### Đặt token vào đây sau khi login
+@token = PASTE_TOKEN_VAO_DAY
+
+### 2. Thông tin phiên
+GET {{host}}/api/auth/me
+Authorization: Bearer {{token}}
+
+### 3. Danh sách đội
+GET {{host}}/api/teams
+Authorization: Bearer {{token}}
+
+### 4. Thu hồi quyền WiFi của đội id=1
+POST {{host}}/api/teams/1/revoke
+Authorization: Bearer {{token}}
+
+### 5. Cấp lại quyền WiFi cho đội id=1
+POST {{host}}/api/teams/1/restore
+Authorization: Bearer {{token}}
+
+### 6. Sửa ghi chú + trạng thái đội id=2
+PATCH {{host}}/api/teams/2
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "note": "Doi bi loi ket noi vong loai",
+  "active": true
+}
+
+### 7. Mở một lượt chạy mới cho đội id=1
+POST {{host}}/api/runs
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "teamId": 1,
+  "note": "Vong chung ket"
+}
+
+### 8. Kết thúc lượt id=1
+POST {{host}}/api/runs/1/finish
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "result": "{\"time_ms\":12345,\"rank\":1}"
+}
+
+### 9. Hủy lượt id=2 (giữ log)
+POST {{host}}/api/runs/2/void
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "note": "Xe hong giua chung"
+}
+
+### 10. Thống kê một lượt
+GET {{host}}/api/runs/1/stats
+Authorization: Bearer {{token}}
+
+### 11. Log thô của lượt (phân trang)
+GET {{host}}/api/runs/1/logs?page=0&size=200
+Authorization: Bearer {{token}}
+
+### 12. Bảng xếp hạng
+GET {{host}}/api/leaderboard
+Authorization: Bearer {{token}}
+
+### 13. Nhật ký thao tác (chỉ admin)
+GET {{host}}/api/audit?page=0&size=50
+Authorization: Bearer {{token}}
+
+### --- Kiểm chứng phân quyền: đăng nhập viewer rồi thử ghi ---
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{
+  "username": "viewer_user",
+  "password": "matkhau_viewer"
+}
+
+### Với token viewer, gọi revoke sẽ bị 403 (Spring Security chặn theo role);
+### và ngay cả khi lọt qua, kết nối app_viewer cũng không có quyền ghi ở tầng DB.
+POST {{host}}/api/teams/1/revoke
+Authorization: Bearer PASTE_VIEWER_TOKEN

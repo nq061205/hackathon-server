@@ -1,0 +1,28 @@
+# --- secrets ---
+.env
+.env.local
+*.env
+!.env.example
+
+# --- Node / frontend ---
+node_modules/
+dist/
+.vite/
+
+# --- Java / Maven ---
+target/
+*.class
+.idea/
+*.iml
+.vscode/
+
+# --- Python ---
+__pycache__/
+*.pyc
+
+# --- OS / editor ---
+.DS_Store
+*.log
+
+# --- Word lock files ---
+~$*.docx

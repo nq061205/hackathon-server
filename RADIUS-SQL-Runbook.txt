@@ -1,0 +1,203 @@
+=====================================================================
+  NỐI RADIUS VỚI POSTGRES — RUNBOOK TRIỂN KHAI
+  5 bước dán trực tiếp vào máy Ubuntu đang chạy FreeRADIUS.
+  Chuyển từ tài khoản khai tay trong file phẳng sang đọc thẳng bảng
+  teams trong Postgres. Tiếp nối đúng chỗ báo cáo triển khai
+  WPA2-Enterprise dừng lại (Mục IV: "phân tích — chưa triển khai
+  thực tế").
+=====================================================================
+
+TRƯỚC KHI BẮT ĐẦU — xác nhận đủ 4 điều sau:
+  [ ] FreeRADIUS đã cài và test qua radtest thành công
+      (Mục 3.1–3.9 báo cáo triển khai)
+  [ ] Role Postgres radius_reader đã tồn tại, đã có mật khẩu THẬT
+      (không phải 123456 mặc định lúc dev)
+  [ ] Ít nhất 1 đội trong bảng teams đã có nt_hash
+      (sinh bằng tool NtHashGen) để test
+  [ ] Biết IP máy chạy Postgres — cùng máy FreeRADIUS hay máy khác
+      trong mạng LAN
+
+
+---------------------------------------------------------------------
+MỘT CHỖ DUY NHẤT THAY ĐỔI
+---------------------------------------------------------------------
+
+FreeRADIUS không đổi cách nó nói chuyện với router hay với xe — chỉ
+đổi NƠI NÓ TRA CỨU TÀI KHOẢN lúc xử lý authorize.
+
+  TRƯỚC:
+    Router --> FreeRADIUS --> mods-config/files/authorize
+                               (khai tay từng dòng, 1 tài khoản/dòng)
+
+  SAU:
+    Router --> FreeRADIUS --> module sql --> PostgreSQL
+                               teams.nt_hash
+                               (role radius_reader, chỉ đọc)
+
+Router và giao thức RADIUS giữa router<->FreeRADIUS giữ nguyên 100%.
+Chỉ nguồn tra cứu tài khoản đổi — nên admin thu hồi 1 đội trên web
+có tác dụng ngay, không cần sửa file trên máy Ubuntu (vì FreeRADIUS
+đọc lại DB ở MỖI lần xe kết nối, không cache).
+
+
+---------------------------------------------------------------------
+BƯỚC 1 — BẬT MODULE SQL
+---------------------------------------------------------------------
+
+Mục đích:
+  Kích hoạt module đã có sẵn trong FreeRADIUS nhưng mặc định chưa bật.
+
+Thực hiện:
+  sudo ln -s /etc/freeradius/3.0/mods-available/sql \
+              /etc/freeradius/3.0/mods-enabled/sql
+
+Kết quả:
+  [OK] Symlink xuất hiện trong mods-enabled/, FreeRADIUS sẽ nạp
+       module này ở lần khởi động kế tiếp.
+
+
+---------------------------------------------------------------------
+BƯỚC 2 — KHAI THÔNG TIN KẾT NỐI POSTGRES
+---------------------------------------------------------------------
+
+Mục đích:
+  Cho module sql biết kết nối vào đâu, bằng tài khoản gì — dùng
+  radius_reader, KHÔNG dùng app_admin.
+
+Thực hiện:
+  sudo nano /etc/freeradius/3.0/mods-available/sql
+
+  Sửa khối sql { ... }:
+
+  sql {
+      driver = "rlm_sql_postgresql"
+      dialect = "postgresql"
+
+      server = "192.168.0.101"   # IP máy Postgres — đổi nếu khác máy
+      port = 5432
+      login = "radius_reader"
+      password = "..."           # mật khẩu THẬT của radius_reader,
+                                  # KHÔNG dùng mặc định dev (123456)
+      radius_db = "hackathon"
+
+      read_clients = no
+  }
+
+Kết quả:
+  [OK] Chưa kiểm tra được ngay — xác nhận ở Bước 5 (chế độ gỡ lỗi).
+
+
+---------------------------------------------------------------------
+BƯỚC 3 — SỬA CÂU TRUY VẤN TRA TÀI KHOẢN
+---------------------------------------------------------------------
+
+Mục đích:
+  Mặc định rlm_sql tìm bảng radcheck — bảng không tồn tại trong DB
+  của dự án này. Phải trỏ lại đúng bảng teams.
+
+Thực hiện:
+  sudo nano /etc/freeradius/3.0/mods-config/sql/main/postgresql/queries.conf
+
+  Thay TOÀN BỘ giá trị authorize_check_query bằng:
+
+  authorize_check_query = "\
+      SELECT id, username, 'NT-Password' AS attribute, nt_hash AS value, ':=' AS op \
+      FROM teams WHERE username = '%{SQL-User-Name}' AND is_active = true"
+
+Kết quả:
+  [OK] Các câu authorize_reply_query, accounting_* phía dưới cứ để
+       nguyên mặc định — không set thì FreeRADIUS tự bỏ qua, không lỗi.
+
+
+---------------------------------------------------------------------
+BƯỚC 4 — ĐƯA SQL VÀO LUỒNG AUTHORIZE
+---------------------------------------------------------------------
+
+Mục đích:
+  Bảo FreeRADIUS thực sự GỌI module sql khi xử lý yêu cầu — bật
+  module ở Bước 1 chưa đủ, phải khai trong site đang dùng.
+
+Thực hiện:
+  sudo nano /etc/freeradius/3.0/sites-enabled/default
+
+  Trong khối authorize { ... }, thêm dòng sql:
+
+  authorize {
+      ...
+      sql
+      files
+      ...
+  }
+
+Kết quả:
+  [OK] Đặt sql TRƯỚC files — đội nào có trong DB thì SQL trả lời
+       trước; giữ files lại phía sau để còn dùng tài khoản test tay
+       như "huy" trong báo cáo. Muốn bỏ hẳn file phẳng thì xoá dòng
+       files.
+
+
+---------------------------------------------------------------------
+BƯỚC 5 — KIỂM THỬ RỒI ĐƯA VÀO VẬN HÀNH
+---------------------------------------------------------------------
+
+Mục đích:
+  Đúng quy trình Mục 3.6–3.7 báo cáo: kiểm tra ở chế độ gỡ lỗi
+  trước, tránh đưa cấu hình sai lên vận hành.
+
+Thực hiện:
+  # Terminal 1
+  sudo systemctl stop freeradius
+  sudo freeradius -X
+
+  # Terminal 2 — sau khi thấy "Ready to process requests"
+  radtest team01 hackathon2026 127.0.0.1 0 testing123
+
+  (team01 / hackathon2026 — tài khoản car01 có sẵn, đã sinh nt_hash
+   từ mật khẩu này lúc dev.)
+
+Kết quả:
+  [OK] Nhận Access-Accept -> đúng, chuyển sang vận hành thật:
+
+  sudo systemctl start freeradius
+  sudo systemctl enable freeradius
+  sudo systemctl status freeradius   # xác nhận active (running)
+
+
+---------------------------------------------------------------------
+LỖI THƯỜNG GẶP
+---------------------------------------------------------------------
+
+  permission denied for table teams
+    -> Quên chạy GRANT SELECT (...) ON teams TO radius_reader,
+       hoặc gõ sai tên cột trong lệnh GRANT.
+
+  relation "radcheck" does not exist
+    -> Bước 3 chưa làm — queries.conf vẫn đang trỏ vào bảng mặc
+       định của FreeRADIUS thay vì teams.
+
+  could not connect to server
+    -> Sai server/port ở Bước 2, hoặc Postgres chưa cho phép kết
+       nối từ IP máy FreeRADIUS trong pg_hba.conf.
+
+  Access-Reject dù mật khẩu đúng
+    -> Đội đó chưa có nt_hash (cột NULL), hoặc is_active = false,
+       hoặc username gõ sai hoa/thường.
+
+  Failed binding to auth address, port 1812
+    -> Giống Mục 3.6 báo cáo — dịch vụ nền và chế độ gỡ lỗi cùng
+       chiếm cổng. Nhớ systemctl stop freeradius trước khi chạy -X.
+
+
+---------------------------------------------------------------------
+ĐỪNG QUÊN
+---------------------------------------------------------------------
+
+  Mật khẩu radius_reader dùng lúc dev trong tài liệu này là 123456
+  — đổi thành mật khẩu thật trước khi vận hành, đúng nguyên tắc
+  "đổi 3 mật khẩu trước khi dùng thật" đã ghi trong init_basic_int.txt
+  (giờ là 4 mật khẩu: app_admin, svc_ingest, app_viewer, radius_reader).
+
+
+=====================================================================
+  Pit Wall · Runbook tích hợp RADIUS-SQL · FreeRADIUS 3.0 · PostgreSQL
+=====================================================================

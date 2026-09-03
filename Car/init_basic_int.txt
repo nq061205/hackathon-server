@@ -1,0 +1,309 @@
+-- =====================================================================
+--  CUỘC THI ĐUA XE — DATABASE PHIÊN BẢN CƠ BẢN
+--  5 bảng, không trigger, không view. Dành cho người mới bắt đầu.
+--
+--  CÁCH CHẠY:
+--    1. Trong database "postgres", chạy:
+--         DROP DATABASE IF EXISTS hackathon;
+--         DROP ROLE IF EXISTS app_admin;
+--         DROP ROLE IF EXISTS svc_ingest;
+--         DROP ROLE IF EXISTS app_viewer;
+--         DROP ROLE IF EXISTS radius_reader;
+--         CREATE DATABASE hackathon;
+--    2. Chuyển sang database "hackathon" và chạy toàn bộ file này.
+--    (LƯU Ý: tên database chữ THƯỜNG — HACKATHON_DB_NAME trong .env backend
+--     và config.py của simulator đều đang trỏ vào "hackathon" chữ thường.
+--     Gõ hoa/thường lẫn lộn sẽ làm backend báo lỗi "database does not exist".)
+--
+--  KIỂU DỮ LIỆU — chỉ dùng 5 kiểu, ánh xạ thẳng sang Java:
+--    SERIAL / INT     ->  int        (các cột id, khóa ngoại)
+--    BIGINT           ->  long       (số thứ tự gói sequence_no)
+--    BOOLEAN          ->  boolean
+--    VARCHAR / TEXT   ->  String
+--    TIMESTAMPTZ      ->  Timestamp  (mọi mốc thời gian)
+--
+--  VÌ SAO CÁC MỐC THỜI GIAN DÙNG TIMESTAMPTZ (không dùng BIGINT epoch ms):
+--    Xem trực tiếp bằng SELECT * là ra ngày giờ đọc được ngay, không phải
+--    tự quy đổi bằng to_timestamp(x/1000.0) mỗi lần xem dữ liệu.
+--    Có "TZ" (with time zone) để giờ xe/server ghi lại không phụ thuộc
+--    múi giờ máy đọc dữ liệu — giữ đúng tính chất "tuyệt đối" mà epoch ms
+--    vốn có, tránh lẫn lộn giờ địa phương giữa các nơi.
+--    Đổi lại: cột sequence_no (số thứ tự gói, không phải mốc thời gian)
+--    vẫn là BIGINT/long như cũ.
+-- =====================================================================
+
+
+-- =====================================================================
+--  BẢNG 1: teams — đội thi và xe
+--  Tạo trước cuộc thi. Cũng là nguồn tài khoản cho FreeRADIUS.
+-- =====================================================================
+CREATE TABLE teams (
+    id            SERIAL       PRIMARY KEY,      -- int
+    team_name     VARCHAR(100) NOT NULL,         -- String
+    car_id        VARCHAR(50)  UNIQUE NOT NULL,  -- String, mã xe in lên thân xe
+    username      VARCHAR(50)  UNIQUE NOT NULL,  -- String, tài khoản vào WiFi
+    nt_hash       VARCHAR(32)  NOT NULL,         -- String, MD4(UTF-16LE(mật khẩu)) dạng hex,
+                                                  -- KHÔNG PHẢI bcrypt — RADIUS/MSCHAPv2 (PEAP)
+                                                  -- bắt buộc cần NT-Hash để tính challenge-response,
+                                                  -- bcrypt (một chiều, có salt) không dùng được.
+                                                  -- Sinh bằng tool NtHashGen (xem GHI CHÚ CHO CODE JAVA).
+                                                  -- LƯU Ý: NT-hash KHÔNG an toàn như bcrypt (không salt,
+                                                  -- MD4 dễ bẻ) — chỉ dùng riêng cho RADIUS, không tái sử
+                                                  -- dụng ở nơi khác (vd không dùng làm mật khẩu web).
+    note          TEXT,                          -- String, ghi chú ban tổ chức
+    is_active     BOOLEAN      NOT NULL DEFAULT true,
+    created_at    TIMESTAMPTZ  NOT NULL,         -- Timestamp
+    mac_address   VARCHAR(17)                    -- String, dạng AA:BB:CC:DD:EE:FF
+                                                  -- gắn trên router để giới hạn 1 máy/đội,
+                                                  -- để trống tới ngày thi thật (NULL = chưa gán)
+);
+
+
+-- =====================================================================
+--  BẢNG 2: runs — từng lượt chạy
+--  Mỗi lần một xe xuất phát = 1 dòng.
+--  Cần bảng này để tách log của lượt 1, lượt 2, lượt chạy lại...
+-- =====================================================================
+CREATE TABLE runs (
+    id         SERIAL      PRIMARY KEY,          -- int
+    team_id    INT         NOT NULL REFERENCES teams(id),
+    heat_no    INT         NOT NULL,             -- lượt thứ mấy của đội
+    started_at TIMESTAMPTZ NOT NULL,             -- Timestamp
+    ended_at   TIMESTAMPTZ,                      -- Timestamp, NULL khi đang chạy
+    status     VARCHAR(20) NOT NULL DEFAULT 'running',
+    result     TEXT,                             -- String, kết quả dạng JSON
+    note       TEXT,
+
+    CHECK (status IN ('running', 'finished', 'unscored'))
+);
+-- status:
+--   running   = đang chạy
+--   finished  = xong, tính điểm
+--   unscored  = hủy do sự cố, không tính điểm (KHÔNG xóa log)
+
+
+-- =====================================================================
+--  BẢNG 3: logs — log thi đấu, gửi mỗi 10ms
+--  Chỉ được ghi thêm, không sửa không xóa.
+-- =====================================================================
+CREATE TABLE logs (
+    run_id        INT         NOT NULL REFERENCES runs(id),
+    team_id       INT         NOT NULL REFERENCES teams(id),
+    sequence_no   BIGINT      NOT NULL,  -- long, số thứ tự gói, đếm từ 0 mỗi lượt
+    car_timestamp TIMESTAMPTZ NOT NULL,  -- Timestamp, thời điểm do XE ghi
+    received_at   TIMESTAMPTZ NOT NULL,  -- Timestamp, thời điểm SERVER nhận
+    ai_result     TEXT        NOT NULL,  -- String, kết quả AI dạng JSON
+
+    PRIMARY KEY (run_id, sequence_no)
+);
+
+CREATE INDEX idx_logs_run ON logs (run_id, car_timestamp);
+
+-- Vì sao có cả car_timestamp và received_at:
+--   Hiệu số (received_at - car_timestamp) = độ trễ mạng, kiểu INTERVAL.
+--   Muốn ra số mili giây thì:
+--     EXTRACT(EPOCH FROM (received_at - car_timestamp)) * 1000
+--   Nhờ đó phân biệt được "AI của đội chạy chậm" với "mạng bị chậm".
+--   Nếu hiệu số ÂM nghĩa là đồng hồ xe chưa đồng bộ NTP.
+--
+-- Vì sao khóa chính là (run_id, sequence_no):
+--   Gói UDP có thể bị gửi lặp. Dùng kèm ON CONFLICT DO NOTHING
+--   thì gói trùng tự động bị bỏ qua.
+
+
+-- =====================================================================
+--  BẢNG 4: app_users — tài khoản đăng nhập phần mềm quản lý
+--  Khác với teams: teams là tài khoản vào WiFi của các XE,
+--                  app_users là tài khoản đăng nhập của CON NGƯỜI.
+-- =====================================================================
+CREATE TABLE app_users (
+    id            SERIAL       PRIMARY KEY,      -- int
+    username      VARCHAR(50)  UNIQUE NOT NULL,
+    full_name     VARCHAR(100),
+    password_hash VARCHAR(255) NOT NULL,
+    role          VARCHAR(20)  NOT NULL,
+    is_active     BOOLEAN      NOT NULL DEFAULT true,
+    created_at    TIMESTAMPTZ  NOT NULL,         -- Timestamp
+
+    CHECK (role IN ('admin', 'viewer'))
+);
+
+
+-- =====================================================================
+--  BẢNG 5: audit_log — ghi lại ai đã sửa dữ liệu gì
+--  Backend tự ghi một dòng mỗi khi admin thay đổi teams hoặc runs.
+-- =====================================================================
+CREATE TABLE audit_log (
+    id         SERIAL       PRIMARY KEY,         -- int
+    admin_user VARCHAR(50)  NOT NULL,            -- ai thực hiện
+    action     VARCHAR(20)  NOT NULL,            -- INSERT / UPDATE / DELETE
+    table_name VARCHAR(50)  NOT NULL,            -- bảng nào bị sửa
+    record_id  VARCHAR(100),                     -- dòng nào
+    detail     TEXT,                             -- mô tả thay đổi
+    created_at TIMESTAMPTZ  NOT NULL             -- Timestamp
+);
+
+
+-- =====================================================================
+--  PHÂN QUYỀN — chỉ admin được thay đổi dữ liệu
+--  >>> ĐỔI 3 MẬT KHẨU DƯỚI ĐÂY TRƯỚC KHI DÙNG THẬT <<<
+-- =====================================================================
+
+-- Tài khoản cho phần mềm quản lý (admin panel)
+CREATE ROLE app_admin LOGIN PASSWORD 'doi_mat_khau_1';
+GRANT SELECT, INSERT, UPDATE, DELETE ON teams, runs, app_users TO app_admin;
+GRANT SELECT, INSERT ON audit_log TO app_admin;
+GRANT SELECT ON logs TO app_admin;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_admin;
+-- Chú ý: admin CHỈ ĐỌC được logs, không sửa không xóa.
+-- Muốn hủy một lượt thì đặt runs.status = 'unscored', log vẫn giữ nguyên.
+-- audit_log chỉ được thêm, không sửa không xóa.
+
+-- Tài khoản cho chương trình nhận log
+CREATE ROLE svc_ingest LOGIN PASSWORD 'doi_mat_khau_2';
+GRANT SELECT ON teams, runs TO svc_ingest;
+GRANT SELECT, INSERT ON logs TO svc_ingest;
+-- Chỉ được THÊM log, không được sửa hay xóa.
+-- Cần cả SELECT: "INSERT ... ON CONFLICT DO NOTHING" (mục đích lọc gói
+-- UDP gửi trùng) buộc Postgres phải đọc unique index để so khớp xung
+-- đột, nên chỉ có INSERT là không đủ — sẽ báo lỗi
+-- "permission denied for table logs" khi chạy ON CONFLICT.
+
+-- Tài khoản cho màn hình xem (giám khảo, MC)
+CREATE ROLE app_viewer LOGIN PASSWORD 'doi_mat_khau_3';
+GRANT SELECT ON teams, runs, logs TO app_viewer;
+-- Không cấp quyền trên audit_log: nhật ký nội bộ không dành cho giám khảo.
+
+-- Tài khoản cho FreeRADIUS (module rlm_sql) xác thực WiFi từng đội
+CREATE ROLE radius_reader LOGIN PASSWORD 'doi_mat_khau_4';
+GRANT SELECT (username, nt_hash, is_active) ON teams TO radius_reader;
+-- Cấp quyền THEO CỘT, không cấp cả bảng: FreeRADIUS chỉ cần biết tài khoản
+-- có tồn tại (username), mật khẩu đúng không (nt_hash), có đang bị thu hồi
+-- không (is_active) — không cần và không nên đọc được team_name, note,
+-- mac_address hay bất cứ cột nào khác của teams.
+-- FreeRADIUS đọc lại 3 cột này ở MỖI lần xe kết nối (không cache), nên
+-- admin đổi is_active trên web có hiệu lực ngay từ lần kết nối tiếp theo.
+
+
+-- =====================================================================
+--  DỮ LIỆU MẪU — xóa trước ngày thi thật
+-- =====================================================================
+
+-- Tài khoản admin đầu tiên.
+-- Sinh hash trong Java:  BCrypt.hashpw("matkhau", BCrypt.gensalt())
+INSERT INTO app_users (username, full_name, password_hash, role, created_at)
+VALUES ('admin', 'Quan tri he thong', '$2a$10$THAY_BANG_HASH_THAT', 'admin', now());
+
+-- Hai đội để test
+-- Sinh nt_hash bằng tool NtHashGen (KHÔNG dùng HashGen/bcrypt cho cột này):
+--   mvn -q compile exec:java -Dexec.mainClass="com.hackathon.backend.tool.NtHashGen" -Dexec.args="matkhau"
+INSERT INTO teams (team_name, car_id, username, nt_hash, created_at)
+VALUES
+  ('Doi Thu Nghiem 1', 'car01', 'team01', 'THAY_BANG_NT_HASH_THAT', now()),
+  ('Doi Thu Nghiem 2', 'car02', 'team02', 'THAY_BANG_NT_HASH_THAT', now());
+
+
+-- =====================================================================
+--  CÁC CÂU LỆNH HAY DÙNG
+-- =====================================================================
+
+-- Xem danh sách đội:
+--     SELECT * FROM teams;
+
+-- Mở một lượt thi cho đội có id = 1:
+--     INSERT INTO runs (team_id, heat_no, started_at)
+--     VALUES (1, 1, now());
+
+-- Đóng lượt thi id = 1:
+--     UPDATE runs
+--     SET status = 'finished',
+--         ended_at = now()
+--     WHERE id = 1;
+
+-- Hủy một lượt (KHÔNG xóa log):
+--     UPDATE runs SET status = 'unscored' WHERE id = 3;
+
+-- Đếm số log của một lượt:
+--     SELECT COUNT(*) FROM logs WHERE run_id = 1;
+
+-- Xem độ trễ mạng trung bình của một lượt, ra số mili giây:
+--     SELECT AVG(EXTRACT(EPOCH FROM (received_at - car_timestamp)) * 1000)
+--     FROM logs WHERE run_id = 1;
+--     (kết quả ÂM nghĩa là đồng hồ xe chưa đồng bộ NTP)
+
+-- Thời gian đã ở dạng đọc được sẵn, không cần quy đổi:
+--     SELECT id, team_id, started_at FROM runs;
+
+-- Xem nhật ký thao tác gần nhất:
+--     SELECT * FROM audit_log ORDER BY created_at DESC LIMIT 20;
+
+
+-- =====================================================================
+--  GHI CHÚ CHO CODE JAVA
+-- =====================================================================
+--
+--  1. Ánh xạ kiểu:
+--         id, team_id, run_id, heat_no          -> int       (ps.setInt)
+--         sequence_no                           -> long      (ps.setLong)
+--         car_timestamp, received_at,
+--         started_at, ended_at, created_at      -> Timestamp (ps.setTimestamp)
+--         mọi cột chữ                           -> String    (ps.setString)
+--
+--  2. Lấy thời gian hiện tại:
+--         Timestamp now = Timestamp.from(Instant.now());
+--         ps.setTimestamp(1, now);
+--     Đọc ngược ra Timestamp / Instant:
+--         Timestamp createdAt = rs.getTimestamp("created_at");
+--         Instant createdAtInstant = createdAt.toInstant();
+--
+--  3. Cột cho phép NULL:
+--         runs.ended_at -> Timestamp (đã là kiểu tham chiếu, rs.getTimestamp()
+--         tự trả về null nếu cột NULL trong DB — không như getLong() trước đây
+--         âm thầm trả về 0, nên không còn cần lo giá trị giả 0 thay cho null).
+--
+--  4. Ghi log phải ghi THEO LÔ, không ghi từng dòng:
+--
+--         String sql = "INSERT INTO logs "
+--             + "(run_id, team_id, sequence_no, car_timestamp, received_at, ai_result) "
+--             + "VALUES (?,?,?,?,?,?) "
+--             + "ON CONFLICT (run_id, sequence_no) DO NOTHING";
+--
+--         conn.setAutoCommit(false);
+--         PreparedStatement ps = conn.prepareStatement(sql);
+--         for (LogEntry e : batch) {
+--             ps.setInt(1, e.runId);                            // int
+--             ps.setInt(2, e.teamId);                           // int
+--             ps.setLong(3, e.sequenceNo);                      // long
+--             ps.setTimestamp(4, Timestamp.from(e.carTimestamp)); // Timestamp
+--             ps.setTimestamp(5, Timestamp.from(e.receivedAt));   // Timestamp
+--             ps.setString(6, e.aiResult);
+--             ps.addBatch();
+--         }
+--         ps.executeBatch();
+--         conn.commit();
+--
+--     Lý do: 2.000 dòng/giây mà ghi từng dòng thì laptop không theo kịp.
+--     Gom khoảng 500 dòng hoặc 200ms rồi ghi một lần.
+--
+--  5. received_at phải do Java gán ngay lúc nhận gói UDP:
+--         Instant receivedAt = Instant.now();
+--     Không để database tự gán, vì ghi theo lô sẽ làm lệch tới 200ms.
+--
+--  6. Ghi audit khi admin sửa dữ liệu:
+--         INSERT INTO audit_log (admin_user, action, table_name,
+--                                record_id, detail, created_at)
+--         VALUES (?, ?, ?, ?, ?, ?)
+--     Backend tự gọi sau mỗi lần sửa teams hoặc runs.
+--     Nếu quên gọi thì không có bản ghi — cần kiểm tra kỹ khi test.
+--
+--  7. Chuỗi kết nối:
+--         jdbc:postgresql://localhost:5432/hackathon?user=svc_ingest&password=...
+--
+--     QUAN TRỌNG: người đăng nhập có role = 'viewer' thì backend phải
+--     dùng kết nối app_viewer, KHÔNG dùng app_admin. Nếu dùng chung
+--     một kết nối app_admin cho mọi người thì phân quyền mất tác dụng.
+--
+--     Không dùng tài khoản postgres trong code — nó có toàn quyền,
+--     bỏ qua mọi kiểm tra ở trên.
+--
+-- =====================================================================
