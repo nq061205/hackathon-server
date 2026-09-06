@@ -1,0 +1,14 @@
+# Danh sach IP hop le cua tung doi — dung cho ingest_server.py --allow-file
+#
+# Moi dong: <IP cua xe>  <team_id trong bang teams>
+# Dong bat dau bang '#' la ghi chu, dong trong bi bo qua.
+#
+# LAY IP O DAU: dat DHCP reservation tren router theo dia chi MAC cua tung xe
+# (cot teams.mac_address), roi dien IP co dinh do vao day. Neu IP van cap dong
+# thi danh sach nay se sai ngay khi xe nhan IP khac -> BAT BUOC dat IP tinh.
+#
+# Kiem tra team_id bang: SELECT id, team_name, car_id FROM teams ORDER BY id;
+
+# IP            team_id     # doi
+192.168.0.11    1           # Doi Thu Nghiem 1 (car01)
+192.168.0.12    2           # Doi Thu Nghiem 2 (car02)

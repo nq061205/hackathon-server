@@ -22,9 +22,11 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
+    private final LoginRateLimitFilter loginRateLimitFilter;
 
-    public SecurityConfig(JwtAuthFilter jwtAuthFilter) {
+    public SecurityConfig(JwtAuthFilter jwtAuthFilter, LoginRateLimitFilter loginRateLimitFilter) {
         this.jwtAuthFilter = jwtAuthFilter;
+        this.loginRateLimitFilter = loginRateLimitFilter;
     }
 
     @Bean
@@ -50,6 +52,13 @@ public class SecurityConfig {
                         .requestMatchers("/api/audit/**").hasRole("ADMIN")
                         // Con lai (GET teams/runs/stats): admin hoac viewer.
                         .anyRequest().authenticated())
+                // Thu tu QUAN TRONG: rate limit khai TRUOC nen chay TRUOC jwtAuthFilter
+                // (hai filter cung moc UsernamePasswordAuthenticationFilter thi giu
+                // nguyen thu tu khai bao). Chan tu som, khong ton cong verify bcrypt
+                // cho request da vuot nguong.
+                // Luu y: moc phai la filter co san cua Spring Security - dung filter
+                // tu viet lam moc se loi "does not have a registered order".
+                .addFilterBefore(loginRateLimitFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();

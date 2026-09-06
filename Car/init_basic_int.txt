@@ -1,19 +1,124 @@
 -- =====================================================================
---  CUỘC THI ĐUA XE — DATABASE PHIÊN BẢN CƠ BẢN
+--  PIT WALL — DỰNG DATABASE TỪ ĐẦU (SCRIPT + HƯỚNG DẪN)
 --  5 bảng, không trigger, không view. Dành cho người mới bắt đầu.
 --
---  CÁCH CHẠY:
---    1. Trong database "postgres", chạy:
---         DROP DATABASE IF EXISTS hackathon;
---         DROP ROLE IF EXISTS app_admin;
---         DROP ROLE IF EXISTS svc_ingest;
---         DROP ROLE IF EXISTS app_viewer;
---         DROP ROLE IF EXISTS radius_reader;
---         CREATE DATABASE hackathon;
---    2. Chuyển sang database "hackathon" và chạy toàn bộ file này.
---    (LƯU Ý: tên database chữ THƯỜNG — HACKATHON_DB_NAME trong .env backend
---     và config.py của simulator đều đang trỏ vào "hackathon" chữ thường.
---     Gõ hoa/thường lẫn lộn sẽ làm backend báo lỗi "database does not exist".)
+--  File này vừa là SCRIPT chạy được, vừa là HƯỚNG DẪN DỰNG DATABASE.
+--  Mọi lời giải thích đều nằm trong comment SQL nên chạy thẳng được:
+--      psql -U postgres -h localhost -d hackathon -f Car/init_basic_int.txt
+--
+--  ĐANG CÓ DATABASE CHẠY SẴN TỪ TRƯỚC? Nhảy thẳng xuống BƯỚC 6.
+--
+-- ---------------------------------------------------------------------
+--  BƯỚC 1 — TẠO DATABASE RỖNG
+-- ---------------------------------------------------------------------
+--  Chạy TAY, trong database "postgres" (không phải database dự án):
+--
+--      psql -U postgres -h localhost
+--
+--      DROP DATABASE IF EXISTS hackathon;
+--      DROP ROLE IF EXISTS app_admin;
+--      DROP ROLE IF EXISTS svc_ingest;
+--      DROP ROLE IF EXISTS app_viewer;
+--      DROP ROLE IF EXISTS radius_reader;
+--      CREATE DATABASE hackathon;
+--
+--  Vì sao phải làm tay, không nhét vào file này: CREATE DATABASE không
+--  chạy được từ bên trong chính database sắp tạo, và lệnh chuyển
+--  database (\c) là lệnh riêng của psql — nhét vào đây sẽ làm file
+--  không chạy được bằng công cụ khác (pgAdmin, JDBC, psycopg2).
+--
+--  CẢNH BÁO: DROP DATABASE xoá sạch, KHÔNG khôi phục được. Chỉ chạy khi
+--  thật sự muốn làm lại từ đầu — KHÔNG chạy khi đang có dữ liệu thi thật.
+--
+--  TÊN DATABASE PHẢI CHỮ THƯỜNG. HACKATHON_DB_NAME trong .env của backend
+--  và config.py của simulator đều trỏ vào "hackathon" chữ thường; gõ
+--  hoa/thường lẫn lộn sẽ báo lỗi "database does not exist".
+--
+-- ---------------------------------------------------------------------
+--  BƯỚC 2 — CHẠY TOÀN BỘ FILE NÀY
+-- ---------------------------------------------------------------------
+--      psql -U postgres -h localhost -d hackathon -f Car/init_basic_int.txt
+--
+--  (hoặc trong psql:  \c hackathon   rồi   \i Car/init_basic_int.txt )
+--
+--  File tạo: 5 bảng, 4 role, phân quyền, giới hạn tài nguyên theo role,
+--  và dữ liệu mẫu.
+--
+--  Kiểm nhanh — không được có dòng lỗi nào:
+--      \dt                      -- phải thấy đủ 5 bảng
+--      SELECT * FROM teams;     -- thấy 2 đội mẫu (car01, car02)
+--
+-- ---------------------------------------------------------------------
+--  BƯỚC 3 — THAY HASH GIẢ BẰNG HASH THẬT
+-- ---------------------------------------------------------------------
+--  Dữ liệu mẫu để hash giả ('$2a$10$THAY_BANG_HASH_THAT' và
+--  'THAY_BANG_NT_HASH_THAT') nên chưa đăng nhập được.
+--
+--  Mật khẩu đăng nhập WEB (bcrypt) — chạy trong hackathon-backend/:
+--      mvn -q compile exec:java -Dexec.mainClass="com.hackathon.backend.tool.HashGen" -Dexec.args="mat_khau_admin_that"
+--      UPDATE app_users SET password_hash = '<hash in ra>'
+--      WHERE username = 'admin';
+--
+--  Mật khẩu WiFi từng đội (NT-hash) — DÙNG TOOL KHÁC, không phải bcrypt:
+--      mvn -q compile exec:java -Dexec.mainClass="com.hackathon.backend.tool.NtHashGen" -Dexec.args="mat_khau_wifi_doi"
+--      UPDATE teams SET nt_hash = '<hash in ra>' WHERE username = 'team01';
+--      -- lặp lại cho từng đội, nên đặt mật khẩu khác nhau mỗi đội
+--
+-- ---------------------------------------------------------------------
+--  BƯỚC 4 — ĐIỀN ĐỊA CHỈ MAC THẬT CỦA TỪNG XE
+-- ---------------------------------------------------------------------
+--      UPDATE teams SET mac_address = 'AA:BB:CC:DD:EE:FF'
+--      WHERE username = 'team01';
+--
+--  Dùng để khoá MAC trên router (mỗi đội một máy, một kết nối) và để
+--  đặt DHCP reservation. IP cố định lấy được từ đó chính là thứ điền
+--  vào Car/simulator/teams_ip.conf — danh sách IP hợp lệ của
+--  ingest_server. Không đặt IP tĩnh thì danh sách đó sai ngay khi xe
+--  nhận IP khác.
+--
+-- ---------------------------------------------------------------------
+--  BƯỚC 5 — ĐỔI MẬT KHẨU ROLE + JWT SECRET (BẮT BUỘC TRƯỚC KHI THI THẬT)
+-- ---------------------------------------------------------------------
+--      ALTER ROLE app_admin     WITH PASSWORD '<mật khẩu thật 1>';
+--      ALTER ROLE svc_ingest    WITH PASSWORD '<mật khẩu thật 2>';
+--      ALTER ROLE app_viewer    WITH PASSWORD '<mật khẩu thật 3>';
+--      ALTER ROLE radius_reader WITH PASSWORD '<mật khẩu thật 4>';
+--
+--  Rồi cập nhật đúng các mật khẩu đó ở 3 nơi:
+--    - hackathon-backend/.env   (HACKATHON_ADMIN_PASSWORD,
+--                                HACKATHON_VIEWER_PASSWORD,
+--                                APP_JWT_SECRET — tối thiểu 32 ký tự)
+--    - biến môi trường HACKATHON_INGEST_PASSWORD khi chạy ingest_server.py
+--    - mods-available/sql trên máy FreeRADIUS (radius_reader)
+--
+-- ---------------------------------------------------------------------
+--  BƯỚC 6 — DATABASE DỰNG TỪ BẢN CŨ: ÁP BỔ SUNG GIỚI HẠN TÀI NGUYÊN
+-- ---------------------------------------------------------------------
+--  CHỈ làm nếu database đã dựng bằng bản file này CŨ (chưa có khối
+--  "GIỚI HẠN TÀI NGUYÊN THEO ROLE"). Máy mới chạy BƯỚC 2 thì đã có sẵn.
+--
+--  Cách biết mình thuộc trường hợp nào:
+--      SELECT rolname, rolconnlimit, rolconfig FROM pg_roles
+--      WHERE rolname IN ('app_admin','app_viewer','svc_ingest','radius_reader');
+--
+--    rolconfig NULL và rolconnlimit = -1   -> CHƯA có, phải làm.
+--    thấy statement_timeout trong rolconfig -> ĐÃ có, bỏ qua.
+--
+--  Nếu chưa có: chép nguyên khối "GIỚI HẠN TÀI NGUYÊN THEO ROLE" ở giữa
+--  file này (các lệnh ALTER ROLE ... SET statement_timeout ...) rồi chạy
+--  bằng role "postgres". Chỉ có hiệu lực từ LẦN KẾT NỐI SAU, nên backend
+--  và ingest_server đang chạy phải khởi động lại mới nhận — không vội,
+--  đây là lớp phòng vệ bổ sung chứ không phải thứ đang hỏng.
+--
+-- ---------------------------------------------------------------------
+--  KIỂM TRA CUỐI CÙNG
+-- ---------------------------------------------------------------------
+--      psql -U app_admin -h localhost -d hackathon -c "SELECT COUNT(*) FROM teams;"
+--
+--  Trả về số dòng (không báo "password authentication failed") là
+--  database + role đã sẵn sàng cho backend và ingest_server kết nối.
+--
+--  Xem tiếp: RADIUS-SQL-Runbook.txt — nối FreeRADIUS vào database này.
 --
 --  KIỂU DỮ LIỆU — chỉ dùng 5 kiểu, ánh xạ thẳng sang Java:
 --    SERIAL / INT     ->  int        (các cột id, khóa ngoại)
@@ -176,13 +281,70 @@ GRANT SELECT ON teams, runs, logs TO app_viewer;
 
 -- Tài khoản cho FreeRADIUS (module rlm_sql) xác thực WiFi từng đội
 CREATE ROLE radius_reader LOGIN PASSWORD 'doi_mat_khau_4';
-GRANT SELECT (username, nt_hash, is_active) ON teams TO radius_reader;
+GRANT SELECT (id, username, nt_hash, is_active) ON teams TO radius_reader;
 -- Cấp quyền THEO CỘT, không cấp cả bảng: FreeRADIUS chỉ cần biết tài khoản
 -- có tồn tại (username), mật khẩu đúng không (nt_hash), có đang bị thu hồi
 -- không (is_active) — không cần và không nên đọc được team_name, note,
 -- mac_address hay bất cứ cột nào khác của teams.
+-- Cột "id" bắt buộc phải cấp: câu authorize_check_query của rlm_sql trả về
+-- 5 cột theo đúng thứ tự (id, username, attribute, value, op) — thiếu quyền
+-- trên "id" sẽ báo "permission denied for table teams" dù 3 cột kia đã cấp.
 -- FreeRADIUS đọc lại 3 cột này ở MỖI lần xe kết nối (không cache), nên
 -- admin đổi is_active trên web có hiệu lực ngay từ lần kết nối tiếp theo.
+
+
+-- =====================================================================
+--  GIỚI HẠN TÀI NGUYÊN THEO ROLE — chống một thành phần làm nghẽn cả hệ
+--
+--  VÌ SAO ĐẶT Ở ĐÂY chứ không chỉ trong cấu hình ứng dụng:
+--    Backend có thể tự đặt statement_timeout khi mở kết nối, nhưng
+--    svc_ingest (Python) và radius_reader (FreeRADIUS) thì KHÔNG —
+--    chúng không chạy qua backend. Đặt ở tầng role thì mọi client dùng
+--    role đó đều bị ràng buộc: backend, script Python, psql, pgAdmin,
+--    và cả người cầm được mật khẩu role bị lộ.
+--
+--  BA GIỚI HẠN, BA MỤC ĐÍCH KHÁC NHAU:
+--    statement_timeout                    — một câu lệnh chạy quá lâu thì
+--        Postgres tự huỷ, trả kết nối về pool. Không có nó, vài truy vấn
+--        nặng là chiếm sạch pool 10 kết nối và cả dashboard treo theo.
+--    idle_in_transaction_session_timeout  — client mở transaction rồi
+--        biến mất (rút mạng, treo máy) sẽ giữ khoá và chặn VACUUM vô hạn.
+--    CONNECTION LIMIT                     — Postgres mặc định chỉ nhận
+--        100 kết nối cho TOÀN BỘ máy chủ. Nếu ingest_server rơi vào vòng
+--        kết nối lại liên tục, nó có thể ăn hết số đó và khoá luôn cửa
+--        vào của backend. Chia hạn mức để một thành phần hỏng không kéo
+--        đổ các thành phần còn lại. Tổng ở đây là 60 < 100, còn dư chỗ
+--        cho superuser vào xử lý sự cố.
+-- =====================================================================
+
+-- Backend (admin panel): truy vấn đều nhỏ; 15s đã rất rộng rãi.
+-- Hạn mức 20 = pool 10 của Hikari + chỗ cho psql/pgAdmin lúc trực.
+ALTER ROLE app_admin  SET statement_timeout = '15s';
+ALTER ROLE app_admin  SET idle_in_transaction_session_timeout = '60s';
+ALTER ROLE app_admin  CONNECTION LIMIT 20;
+
+-- Màn hình xem: chỉ đọc, nhưng bị gọi liên tục (dashboard 1,5 giây/lần)
+-- nên đây là role dễ bị lạm dụng nhất — giới hạn y như admin.
+ALTER ROLE app_viewer SET statement_timeout = '15s';
+ALTER ROLE app_viewer SET idle_in_transaction_session_timeout = '60s';
+ALTER ROLE app_viewer CONNECTION LIMIT 20;
+
+-- Nhận log: nới hơn (30s) vì mỗi lệnh ghi cả lô 500 dòng, KHÔNG được
+-- cắt ngang giữa chừng. Chỉ cần vài kết nối: 1 để ghi, 1 để kiểm run.
+ALTER ROLE svc_ingest SET statement_timeout = '30s';
+ALTER ROLE svc_ingest SET idle_in_transaction_session_timeout = '60s';
+ALTER ROLE svc_ingest CONNECTION LIMIT 10;
+
+-- FreeRADIUS: câu truy vấn chỉ tra 1 dòng theo username, mất vài mili
+-- giây. 5s mà chưa xong nghĩa là DB đang có sự cố — thà trượt xác thực
+-- nhanh còn hơn để xe treo chờ khi đang vào sân.
+ALTER ROLE radius_reader SET statement_timeout = '5s';
+ALTER ROLE radius_reader SET idle_in_transaction_session_timeout = '60s';
+ALTER ROLE radius_reader CONNECTION LIMIT 10;
+
+-- LƯU Ý khi cần chạy việc dài (xuất dữ liệu, sao lưu, thống kê cuối
+-- giải): đăng nhập bằng role "postgres", ĐỪNG nới statement_timeout của
+-- 4 role trên. Chúng phục vụ đường chạy nóng lúc thi.
 
 
 -- =====================================================================

@@ -1,6 +1,21 @@
 server:
   port: ${SERVER_PORT:8080}
 
+  # ------------------------------------------------------------------
+  # Chan giu ket noi rong (slowloris): mo that nhieu ket noi roi gui du
+  # lieu that nho giot de chiem het luong xu ly. Mac dinh Tomcat cho cho
+  # 20 giay va 8192 ket noi - qua rong rai cho mot may chu chi phuc vu
+  # vai chuc may trong phong thi.
+  # ------------------------------------------------------------------
+  tomcat:
+    connection-timeout: ${SERVER_CONN_TIMEOUT:5s}   # cho toi da 5s de gui xong header
+    keep-alive-timeout: ${SERVER_KEEPALIVE:15s}
+    max-connections: ${SERVER_MAX_CONN:2000}
+    threads:
+      max: ${SERVER_MAX_THREADS:200}
+      min-spare: 10
+  max-http-request-header-size: 16KB
+
 spring:
   application:
     name: hackathon-backend
@@ -48,6 +63,27 @@ app:
   jwt:
     secret: ${APP_JWT_SECRET:doi-secret-nay-cho-that-toi-thieu-32-ky-tu-abcdefgh}
     expiration-minutes: ${APP_JWT_EXP_MINUTES:480}
+
+  # ------------------------------------------------------------------
+  # Chan do mat khau + chan lam nghen CPU o /api/auth/login.
+  # Moi lan dang nhap ton ~100ms CPU de verify bcrypt, nen day la
+  # endpoint de bi danh nhat. 10 lan/phut la thoai mai cho nguoi dung
+  # that (dang nhap 1-2 lan moi phien) nhung chan duoc tan cong.
+  # Dat 0 de TAT (khong khuyen khich khi chay that).
+  # ------------------------------------------------------------------
+  login-rate-limit:
+    max-per-minute: ${APP_LOGIN_MAX_PER_MINUTE:10}
+    # Tran kich thuoc than request dang nhap. Goi that chi vai tram byte.
+    # Khong co tran nay thi bo dem so lan o tren van bi lach: no chan duoc
+    # SO LUOT nhung khong chan duoc DUNG LUONG (10 request x 1GB).
+    max-body-bytes: ${APP_LOGIN_MAX_BODY_BYTES:4096}
+
+  # ------------------------------------------------------------------
+  # Tran thoi gian phia CSDL. Xem ghi chu trong DataSourceConfig.
+  # ------------------------------------------------------------------
+  db:
+    statement-timeout-ms: ${APP_DB_STATEMENT_TIMEOUT_MS:15000}
+    connection-timeout-ms: ${APP_DB_CONNECTION_TIMEOUT_MS:10000}
 
 logging:
   level:
