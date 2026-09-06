@@ -35,6 +35,19 @@ public class DataSourceConfig {
     @Value("${datasource.viewer.password}")
     private String viewerPassword;
 
+    /**
+     * Tran thoi gian cho MOT cau lenh SQL. Khong co no thi mot truy van nang
+     * (hoac bi co tinh lam nang) giu ket noi den het connectionTimeout, va chi
+     * can vai cai la chiem sach pool 10 ket noi -> ca dashboard treo. Postgres
+     * tu huy cau lenh vuot nguong va tra loi ngay, ket noi duoc giai phong.
+     */
+    @Value("${app.db.statement-timeout-ms:15000}")
+    private int statementTimeoutMs;
+
+    /** Cho toi da bao lau de xin mot ket noi tu pool truoc khi bao loi. */
+    @Value("${app.db.connection-timeout-ms:10000}")
+    private int connectionTimeoutMs;
+
     private String jdbcUrl() {
         return "jdbc:postgresql://" + host + ":" + port + "/" + dbName;
     }
@@ -49,7 +62,12 @@ public class DataSourceConfig {
                 .build();
         ds.setPoolName(poolName);
         ds.setMaximumPoolSize(maxPool);
-        ds.setMinimumIdle(1);
+        // Giu san ket noi bang kich thuoc pool: luc bi don dot ngot thi khong
+        // phai vua mo ket noi moi vua phuc vu (mo ket noi Postgres kha dat).
+        ds.setMinimumIdle(maxPool);
+        ds.setConnectionTimeout(connectionTimeoutMs);
+        // Chay mot lan cho moi ket noi khi vua mo.
+        ds.setConnectionInitSql("SET statement_timeout = " + statementTimeoutMs);
         return ds;
     }
 

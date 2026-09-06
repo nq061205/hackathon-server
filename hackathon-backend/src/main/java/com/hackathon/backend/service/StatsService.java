@@ -3,8 +3,8 @@ package com.hackathon.backend.service;
 import com.hackathon.backend.dto.*;
 import com.hackathon.backend.entity.LogEntry;
 import com.hackathon.backend.entity.Run;
-import com.hackathon.backend.entity.Team;
 import com.hackathon.backend.exception.ApiException;
+import com.hackathon.backend.repository.LeaderboardProjection;
 import com.hackathon.backend.repository.LogRepository;
 import com.hackathon.backend.repository.RunRepository;
 import com.hackathon.backend.repository.RunStatsProjection;
@@ -88,25 +88,17 @@ public class StatsService {
 
     @Transactional(readOnly = true)
     public List<LeaderboardEntry> leaderboard() {
-        List<Team> teams = teamRepository.findAllByOrderByIdAsc();
+        // MOT truy van cho ca bang (xem TeamRepository.leaderboardRows).
         List<LeaderboardEntry> out = new ArrayList<>();
-
-        for (Team t : teams) {
-            List<Run> runs = runRepository.findByTeamIdOrderByHeatNoAsc(t.getId());
-            long finished = 0;
-            Long best = null;
-            long totalLogs = 0;
-
-            for (Run r : runs) {
-                totalLogs += logRepository.countByRunId(r.getId());
-                if ("finished".equals(r.getStatus()) && r.getEndedAt() != null && r.getStartedAt() != null) {
-                    finished++;
-                    long dur = Duration.between(r.getStartedAt(), r.getEndedAt()).toMillis();
-                    if (best == null || dur < best) best = dur;
-                }
-            }
-            out.add(new LeaderboardEntry(t.getId(), t.getTeamName(), t.getCarId(),
-                    t.isActive(), finished, best, totalLogs));
+        for (LeaderboardProjection p : teamRepository.leaderboardRows()) {
+            out.add(new LeaderboardEntry(
+                    p.getTeamId(),
+                    p.getTeamName(),
+                    p.getCarId(),
+                    Boolean.TRUE.equals(p.getActive()),
+                    p.getFinishedRuns() != null ? p.getFinishedRuns() : 0L,
+                    p.getBestDurationMs(),
+                    p.getTotalLogs() != null ? p.getTotalLogs() : 0L));
         }
 
         // Sap xep: doi co luot finished truoc, thoi gian tot nhat len dau.
