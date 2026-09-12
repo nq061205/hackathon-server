@@ -33,6 +33,12 @@ public class RunController {
         return runService.open(req);
     }
 
+    /** Marshal bam nut tren web de ra lenh xe bat dau ghi log (thay carlogctl.py start tay). */
+    @PostMapping("/{id}/car-start")
+    public RunResponse carStart(@PathVariable Integer id) {
+        return runService.requestCarStart(id);
+    }
+
     /** Ket thuc luot (status=finished). */
     @PostMapping("/{id}/finish")
     public RunResponse finish(@PathVariable Integer id, @RequestBody(required = false) RunFinishRequest req) {

@@ -36,6 +36,12 @@ public class Run {
     @Column(name = "note")
     private String note;
 
+    // NULL = marshal chua bam nut "Bat dau ghi log" tren web cho luot nay.
+    // carlogd (xe) tu dong doc gia tri nay qua API de tu START, thay vi phai
+    // go tay carlogctl.py start <run_id> - xem RunService.requestCarStart().
+    @Column(name = "car_start_requested_at")
+    private Instant carStartRequestedAt;
+
     public Integer getId() { return id; }
     public void setId(Integer id) { this.id = id; }
 
@@ -59,4 +65,7 @@ public class Run {
 
     public String getNote() { return note; }
     public void setNote(String note) { this.note = note; }
+
+    public Instant getCarStartRequestedAt() { return carStartRequestedAt; }
+    public void setCarStartRequestedAt(Instant carStartRequestedAt) { this.carStartRequestedAt = carStartRequestedAt; }
 }

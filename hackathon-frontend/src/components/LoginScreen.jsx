@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { useI18n } from "../i18n/I18nContext";
 import { Flag, Signal, Trophy, CarRun } from "../lib/sprites";
-
-const DEFAULT_API = import.meta.env.VITE_DEFAULT_API ?? "http://localhost:8080";
+import { DEFAULT_API } from "../lib/config";
 
 /**
  * Trang landing + đăng nhập. Hero bên trái giới thiệu, thẻ đăng nhập bên phải.

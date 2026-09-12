@@ -25,6 +25,25 @@ async function request(base, path, token, opts = {}) {
   return res.status === 204 ? null : res.json();
 }
 
+// "Song hay chet": goi GET /api/health (khong can dang nhap - xem
+// HealthController). Dung boi BackendGate.jsx de biet luc nao backend (java
+// -jar, do Electron tu spawn khi mo app) da san sang, tranh hien "MAT KET
+// NOI" gia lap trong vai giay dau tien luc backend con dang khoi dong.
+// Timeout ngan (2.5s) de khong bi "treo" cho neu ket noi bi tu choi kieu cham.
+export async function ping(base) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 2500);
+  try {
+    const res = await fetch(joinUrl(base, "/api/health"), {
+      cache: "no-store",
+      signal: ctrl.signal,
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function login(base, username, password) {
   const res = await fetch(joinUrl(base, "/api/auth/login"), {
     method: "POST",
@@ -61,7 +80,9 @@ export function makeClient(base, token) {
     teamRevoke: (id) => j(`/api/teams/${id}/revoke`, "POST"),
     teamRestore: (id) => j(`/api/teams/${id}/restore`, "POST"),
     teamUpdate: (id, body) => j(`/api/teams/${id}`, "PATCH", body),
+    teamCarKey: (id) => j(`/api/teams/${id}/car-api-key`, "POST"),
     runOpen: (teamId, note) => j(`/api/runs`, "POST", { teamId, note: note || null }),
+    runCarStart: (id) => j(`/api/runs/${id}/car-start`, "POST"),
     runFinish: (id, result) => j(`/api/runs/${id}/finish`, "POST", { result: result || null }),
     runVoid: (id, note) => j(`/api/runs/${id}/void`, "POST", { note: note || null }),
     audit: (page = 0, size = 12) => g(`/api/audit?page=${page}&size=${size}`),

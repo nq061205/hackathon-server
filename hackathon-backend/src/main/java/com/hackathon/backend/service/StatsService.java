@@ -69,7 +69,7 @@ public class StatsService {
             throw ApiException.notFound("Khong tim thay luot chay id=" + runId);
         }
         int safeSize = Math.min(Math.max(size, 1), 2000);
-        Page<LogEntry> p = logRepository.findByRunIdOrderBySequenceNoAsc(
+        Page<LogEntry> p = logRepository.findByRunIdOrderBySequenceNoDesc(
                 runId, PageRequest.of(Math.max(page, 0), safeSize));
         List<LogResponse> content = p.getContent().stream().map(LogResponse::from).toList();
         return PageResponse.of(p, content);

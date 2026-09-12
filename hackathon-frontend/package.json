@@ -3,18 +3,68 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Pit Wall - bang theo doi log xe thi dau cho ban giam khao (React + Vite)",
+  "description": "Pit Wall - bang theo doi log xe thi dau cho ban giam khao (React + Vite + Electron)",
+  "author": "lucius",
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "electron:dev": "node scripts/prebuild.mjs && concurrently -k -n VITE,ELECTRON \"vite --config vite.config.electron.js\" \"wait-on tcp:3010 && electron .\"",
+    "electron:dev:hidden": "wscript scripts\\start-hidden.vbs",
+    "electron:build": "node scripts/prebuild.mjs && npm run build && electron-builder"
   },
   "dependencies": {
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "@stomp/stompjs": "^7.0.0",
+    "sockjs-client": "^1.6.1"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
-    "vite": "^5.4.11"
+    "vite": "^5.4.11",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "concurrently": "^9.1.0",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.hackathon.pitwall",
+    "productName": "Pit Wall Console",
+    "directories": {
+      "buildResources": "build",
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../hackathon-backend/target/backend-1.0.0.jar",
+        "to": "backend/backend-1.0.0.jar"
+      },
+      {
+        "from": "../Car/simulator/ingest_server.py",
+        "to": "ingest/ingest_server.py"
+      },
+      {
+        "from": "../Car/simulator/config.py",
+        "to": "ingest/config.py"
+      },
+      {
+        "from": "../Car/simulator/protocol.py",
+        "to": "ingest/protocol.py"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }

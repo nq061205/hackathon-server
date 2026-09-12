@@ -83,6 +83,21 @@ public class RunService {
         return RunResponse.from(r);
     }
 
+    /** Marshal bam "Bat dau ghi log" tren web - carlogd tren xe se tu doc va tu START,
+     * khong can go tay carlogctl.py nua (xem pi-daemon/carlogd.py#api_poll_loop). */
+    @Transactional
+    public RunResponse requestCarStart(Integer id) {
+        Run r = load(id);
+        if (!"running".equals(r.getStatus())) {
+            throw ApiException.conflict("Chi ra lenh bat dau ghi cho luot dang 'running' (hien tai: " + r.getStatus() + ")");
+        }
+        r.setCarStartRequestedAt(Instant.now());
+        runRepository.save(r);
+
+        auditService.record("UPDATE", "runs", String.valueOf(id), "ra lenh xe bat dau ghi log (car_start_requested_at)");
+        return RunResponse.from(r);
+    }
+
     @Transactional
     public RunResponse voidRun(Integer id, RunVoidRequest req) {
         Run r = load(id);
