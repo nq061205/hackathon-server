@@ -10,7 +10,7 @@ import org.springframework.data.repository.query.Param;
 
 public interface LogRepository extends JpaRepository<LogEntry, LogId> {
 
-    Page<LogEntry> findByRunIdOrderBySequenceNoAsc(Integer runId, Pageable pageable);
+    Page<LogEntry> findByRunIdOrderBySequenceNoDesc(Integer runId, Pageable pageable);
 
     long countByRunId(Integer runId);
 

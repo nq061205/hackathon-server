@@ -7,6 +7,7 @@ function Icon({ name }) {
   const p = { width: 16, height: 16, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round" };
   switch (name) {
     case "overview": return <svg {...p}><rect x="2" y="2" width="5" height="5" rx="1" /><rect x="9" y="2" width="5" height="5" rx="1" /><rect x="2" y="9" width="5" height="5" rx="1" /><rect x="9" y="9" width="5" height="5" rx="1" /></svg>;
+    case "mixer": return <svg {...p}><path d="M4 2v12M8 2v12M12 2v12" /><circle cx="4" cy="10" r="1.4" fill="currentColor" stroke="none" /><circle cx="8" cy="5" r="1.4" fill="currentColor" stroke="none" /><circle cx="12" cy="8" r="1.4" fill="currentColor" stroke="none" /></svg>;
     case "timing": return <svg {...p}><circle cx="8" cy="9" r="5" /><path d="M8 9V6M6 1.5h4" /></svg>;
     case "network": return <svg {...p}><path d="M2 13h2v-3H2zM7 13h2V7H7zM12 13h2V4h-2z" /></svg>;
     case "logs": return <svg {...p}><rect x="2.5" y="1.5" width="11" height="13" rx="1.2" /><path d="M5 5h6M5 8h6M5 11h3.5" /></svg>;

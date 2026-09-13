@@ -18,6 +18,7 @@ import TimingTower from "./TimingTower";
 import RaceControl from "./RaceControl";
 import Incidents from "./Incidents";
 import WinProbability from "./WinProbability";
+import Switcher from "./Switcher";
 
 export default function Dashboard({ session, onLogout }) {
   const { t } = useI18n();
@@ -30,9 +31,13 @@ export default function Dashboard({ session, onLogout }) {
     [session]
   );
 
-  const tabs = ["overview", "timing", "network", "logs", "screen", ...(isAdmin ? ["admin"] : [])];
+  // "mixer" = bàn chuyển cảnh kiểu vMix/TriCaster (xem lib/sources.js + Switcher.jsx).
+  // programId là nguồn đang "phát sóng" — giữ ở đây (không trong Switcher) để
+  // sau này có thể đẩy cùng giá trị này sang ProjectorView/màn chiếu nếu cần.
+  const tabs = ["overview", "mixer", "timing", "network", "logs", "screen", ...(isAdmin ? ["admin"] : [])];
   const [tab, setTab] = useState("overview");
   const [sideHidden, setSideHidden] = useState(false);
+  const [programId, setProgramId] = useState("track");
   const active = tabs.includes(tab) ? tab : "overview";
 
   return (
@@ -43,7 +48,7 @@ export default function Dashboard({ session, onLogout }) {
       />
 
       <div className="main">
-        {active !== "screen" && active !== "admin" && <RaceHeader data={data} online={online} />}
+        {active !== "screen" && active !== "admin" && active !== "mixer" && <RaceHeader data={data} online={online} />}
 
         {active === "overview" && (
           <>
@@ -68,6 +73,16 @@ export default function Dashboard({ session, onLogout }) {
           </>
         )}
 
+        {active === "mixer" && (
+          <Switcher
+            data={data}
+            selRun={selRun}
+            onSelect={setSelRun}
+            programId={programId}
+            onProgramChange={setProgramId}
+          />
+        )}
+
         {active === "timing" && (
           <>
             <SessionStats data={data} strip />
@@ -86,9 +101,11 @@ export default function Dashboard({ session, onLogout }) {
           <AdminConsole data={data} client={client} refresh={refresh} onUnauthorized={onUnauthorized} />
         )}
 
-        <div className="foot">
-          {t("foot")} · <b>WPA2-Enterprise / RADIUS</b> · {t("foot.role")}
-        </div>
+        {active !== "mixer" && (
+          <div className="foot">
+            {t("foot")} · <b>WPA2-Enterprise / RADIUS</b> · {t("foot.role")}
+          </div>
+        )}
       </div>
     </div>
   );

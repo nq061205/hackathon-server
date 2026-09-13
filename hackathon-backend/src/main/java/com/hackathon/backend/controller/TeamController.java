@@ -1,5 +1,6 @@
 package com.hackathon.backend.controller;
 
+import com.hackathon.backend.dto.TeamCarKeyResponse;
 import com.hackathon.backend.dto.TeamResponse;
 import com.hackathon.backend.dto.TeamUpdateRequest;
 import com.hackathon.backend.service.TeamService;
@@ -48,5 +49,15 @@ public class TeamController {
     @PostMapping("/{id}/restore")
     public TeamResponse restore(@PathVariable Integer id) {
         return teamService.restore(id);
+    }
+
+    /**
+     * Sinh MOI chia khoa car_api_key cho xe cua doi nay (dung cho
+     * CarStatusController) - thay the viec go tay SQL. Tra ve chia khoa o
+     * dang chu DUY NHAT MOT LAN o day, khong bao gio lay lai duoc qua GET.
+     */
+    @PostMapping("/{id}/car-api-key")
+    public TeamCarKeyResponse regenerateCarApiKey(@PathVariable Integer id) {
+        return teamService.regenerateCarApiKey(id);
     }
 }

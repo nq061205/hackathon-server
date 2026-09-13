@@ -158,9 +158,26 @@ CREATE TABLE teams (
     note          TEXT,                          -- String, ghi chú ban tổ chức
     is_active     BOOLEAN      NOT NULL DEFAULT true,
     created_at    TIMESTAMPTZ  NOT NULL,         -- Timestamp
-    mac_address   VARCHAR(17)                    -- String, dạng AA:BB:CC:DD:EE:FF
+    mac_address   VARCHAR(17),                   -- String, dạng AA:BB:CC:DD:EE:FF
                                                   -- gắn trên router để giới hạn 1 máy/đội,
                                                   -- để trống tới ngày thi thật (NULL = chưa gán)
+    -- Chìa khoá RIÊNG cho carlogd trên xe của CHÍNH đội này gọi API kiểm tra
+    -- trạng thái lượt chạy (GET /api/teams/{id}/car-status, header
+    -- X-Car-Api-Key) — KHÁC hẳn username/nt_hash (đó là để lên WiFi) và
+    -- KHÁC tài khoản admin/viewer trên web (đó là cho người, đăng nhập
+    -- JWT). Endpoint car-status chỉ so khớp đúng key của ĐÚNG id trong
+    -- URL, không cấp quyền đọc gì khác — dù lộ (thí sinh đọc được trong
+    -- config.py trên xe của chính đội mình) cũng chỉ xem được lượt của
+    -- đội mình, không đọc được dữ liệu đội khác. Không trả ra qua bất kỳ
+    -- API JSON nào ngoài LẦN SINH ĐẦU TIÊN (giống nt_hash) — dùng nút
+    -- "Sinh chìa khoá xe" trong Admin Console trên web (POST
+    -- /api/teams/{id}/car-api-key, sinh bằng CSPRNG thật trong Java, xem
+    -- TeamService#regenerateCarApiKey) thay vì tự go SQL. Chỉ dùng SQL tay
+    -- (vd khi chưa build lại backend, hoặc thao tác thẳng trên DB) như dự
+    -- phòng:
+    --   UPDATE teams SET car_api_key = md5(random()::text || clock_timestamp()::text)
+    --   WHERE id = 1;
+    car_api_key   VARCHAR(64)
 );
 
 
@@ -178,6 +195,12 @@ CREATE TABLE runs (
     status     VARCHAR(20) NOT NULL DEFAULT 'running',
     result     TEXT,                             -- String, kết quả dạng JSON
     note       TEXT,
+    -- NULL = marshal chưa bấm nút "Bắt đầu ghi log" trên web cho lượt này.
+    -- carlogd trên xe tự đọc cột này qua API (GET /api/teams/{id}/car-status,
+    -- xác thực bằng car_api_key riêng của đội — xem cột teams.car_api_key)
+    -- để tự START, thay cho việc marshal gõ tay carlogctl.py start <run_id>
+    -- (tính năng TÙY CHỌN — xem pi-daemon/config.py#API_BASE).
+    car_start_requested_at TIMESTAMPTZ,
 
     CHECK (status IN ('running', 'finished', 'unscored'))
 );

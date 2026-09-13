@@ -1,5 +1,6 @@
 package com.hackathon.backend.service;
 
+import com.hackathon.backend.dto.TeamCarKeyResponse;
 import com.hackathon.backend.dto.TeamResponse;
 import com.hackathon.backend.dto.TeamUpdateRequest;
 import com.hackathon.backend.entity.Team;
@@ -8,6 +9,8 @@ import com.hackathon.backend.repository.TeamRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.security.SecureRandom;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.regex.Pattern;
 
@@ -21,6 +24,11 @@ public class TeamService {
 
     // AA:BB:CC:DD:EE:FF - hoa hoac thuong, dung dau ':' (chuan hien thi pho bien nhat).
     private static final Pattern MAC_PATTERN = Pattern.compile("^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$");
+
+    // CSPRNG that su (KHONG dung Postgres random(), khong dam bao chuan
+    // crypto) - dung sinh car_api_key, moi lan bam nut ra 1 chia khoa moi
+    // 32 byte (64 ky tu hex), khong the doan truoc.
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final TeamRepository teamRepository;
     private final AuditService auditService;
@@ -99,5 +107,28 @@ public class TeamService {
         auditService.record("UPDATE", "teams", String.valueOf(id),
                 "cap lai quyen WiFi (is_active=true), username=" + t.getUsername());
         return TeamResponse.from(t);
+    }
+
+    /**
+     * Sinh MOI chia khoa car_api_key cho 1 doi (dung cho carlogd tren xe goi
+     * GET /api/teams/{id}/car-status - xem CarStatusController). Thay the
+     * viec admin phai tu go UPDATE ... SET car_api_key = ... bang SQL: nut
+     * bam tren web nay dung ngay cho ca 10-15 doi, khong can ai biet SQL,
+     * va dung CSPRNG that su thay vi md4/random() cua Postgres.
+     *
+     * Chia khoa CU mat hieu luc ngay khi sinh khoa moi - neu bam nham sau
+     * khi xe da chay on dinh, phai cap nhat lai config.py tren xe cho khop.
+     */
+    @Transactional
+    public TeamCarKeyResponse regenerateCarApiKey(Integer id) {
+        Team t = load(id);
+        byte[] raw = new byte[32];
+        SECURE_RANDOM.nextBytes(raw);
+        String key = HexFormat.of().formatHex(raw);
+        t.setCarApiKey(key);
+        teamRepository.save(t);
+        auditService.record("UPDATE", "teams", String.valueOf(id),
+                "sinh moi car_api_key cho xe (khoa cu, neu co, het hieu luc)");
+        return new TeamCarKeyResponse(id, key);
     }
 }
