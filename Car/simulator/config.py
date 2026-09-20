@@ -15,7 +15,11 @@ ADMIN_PASSWORD = os.environ.get("HACKATHON_ADMIN_PASSWORD", "doi_mat_khau_1")
 INGEST_USER = os.environ.get("HACKATHON_INGEST_USER", "svc_ingest")
 INGEST_PASSWORD = os.environ.get("HACKATHON_INGEST_PASSWORD", "doi_mat_khau_2")
 
-UDP_HOST = os.environ.get("HACKATHON_UDP_HOST", "127.0.0.1")
+# 0.0.0.0 = nhan tren MOI card mang. Bat buoc phai the neu xe that (Raspberry
+# Pi) gui qua WiFi: gan vao "127.0.0.1" thi chi nhan duoc goi tu chinh may chu,
+# goi tu xe bi kernel vut IM LANG - khong bao loi, 'nhan' dung yen o 0, rat mat
+# thoi gian mo. Chi dat 127.0.0.1 khi co y chay thu mot minh tren may.
+UDP_HOST = os.environ.get("HACKATHON_UDP_HOST", "0.0.0.0")
 UDP_PORT = int(os.environ.get("HACKATHON_UDP_PORT", "9999"))
 
 

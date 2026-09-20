@@ -12,3 +12,12 @@
 # IP            team_id     # doi
 192.168.0.11    1           # Doi Thu Nghiem 1 (car01)
 192.168.0.12    2           # Doi Thu Nghiem 2 (car02)
+
+# ---------------------------------------------------------------------
+# CACH CHAY (luu y --host 0.0.0.0: neu gan vao 127.0.0.1 thi xe that
+# gui toi se bi vut im lang, 'nhan' dung yen o 0):
+#
+#   python ingest_server.py --host 0.0.0.0 --port 9999 \
+#       --validate-run --allow-file teams_ip.conf
+#
+# Xe gui ma khong thay du lieu -> xem CHAY-INGEST.txt (cung thu muc).

@@ -690,6 +690,30 @@ def _tach(bang, tong):
     return "[" + " ".join("%s:%d" % (k, v) for k, v in top) + them + "]"
 
 
+def _dia_chi_lan():
+    """Cac IP LAN cua may nay - de in ra lam goi y dia chi dien vao xe.
+
+    Chi doan de tien cho nguoi dung, khong dung vao logic nao. Khong gui goi
+    tin nao: connect() tren UDP chi de kernel chon duong ra roi doc lai dia
+    chi nguon no dinh dung.
+    """
+    ips = []
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ips.append(s.getsockname()[0])
+        s.close()
+    except OSError:
+        pass
+    try:
+        for ip in socket.gethostbyname_ex(socket.gethostname())[2]:
+            if ip not in ips and not ip.startswith("127."):
+                ips.append(ip)
+    except OSError:
+        pass
+    return ips
+
+
 def stats_printer(stats: Stats, interval_s: float):
     last = stats.snapshot()
     last_t = time.monotonic()
@@ -712,7 +736,10 @@ def stats_printer(stats: Stats, interval_s: float):
 
 def main():
     ap = argparse.ArgumentParser(description="UDP ingest server (ban lam cung cho du lieu that)")
-    ap.add_argument("--host", default=config.UDP_HOST)
+    ap.add_argument("--host", default=config.UDP_HOST,
+                    help="dia chi lang nghe. 0.0.0.0 (mac dinh) = nhan tren moi "
+                         "card mang, bat buoc khi xe that gui qua WiFi. "
+                         "127.0.0.1 = chi nhan tu chinh may nay (chay thu).")
     ap.add_argument("--port", type=int, default=config.UDP_PORT)
     ap.add_argument("--flush-ms", type=int, default=200)
     ap.add_argument("--flush-rows", type=int, default=500)
@@ -794,6 +821,28 @@ def main():
         print("[ingest] CANH BAO: da TAT chong flood (--max-pps-per-ip 0).", flush=True)
 
     print(f"LISTENING on {args.host}:{args.port}", flush=True)
+    if args.host in ("127.0.0.1", "localhost", "::1"):
+        # Day la cai bay ton thoi gian nhat khi trien khai: moi thu trong nay
+        # deu binh thuong, chi co dieu goi tu xe khong bao gio toi noi.
+        print("*" * 72, file=sys.stderr, flush=True)
+        print("[ingest] CANH BAO: dang gan vao loopback -> CHI nhan goi tu "
+              "CHINH may nay.", file=sys.stderr, flush=True)
+        print("         Xe that gui toi day se bi he dieu hanh vut IM LANG: "
+              "khong bao loi,", file=sys.stderr, flush=True)
+        print("         khong log, 'nhan' dung yen o 0.", file=sys.stderr, flush=True)
+        print("         Muon nhan tu xe that, chay lai voi:  --host 0.0.0.0",
+              file=sys.stderr, flush=True)
+        print("*" * 72, file=sys.stderr, flush=True)
+    else:
+        lan = _dia_chi_lan()
+        if lan:
+            print("[ingest] Tren xe, dat dia chi may chu la mot trong cac IP sau "
+                  "(cung dai mang voi xe):", flush=True)
+            for ip in lan:
+                print(f"           {ip}:{args.port}", flush=True)
+            print("[ingest] Neu xe gui ma 'nhan' van = 0: kiem tuong lua may chu "
+                  "(cho UDP vao cong "
+                  f"{args.port}) va tat AP isolation tren router.", flush=True)
 
     try:
         while not STOP.is_set():
