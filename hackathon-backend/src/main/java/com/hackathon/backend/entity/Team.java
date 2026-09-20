@@ -47,6 +47,14 @@ public class Team {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    // Chia khoa RIENG cho carlogd tren xe cua CHINH doi nay goi
+    // GET /api/teams/{id}/car-status (header X-Car-Api-Key) - KHONG lien
+    // quan toi username/ntHash (WiFi) hay tai khoan admin/viewer (nguoi
+    // dang nhap web). KHONG BAO GIO tra ra ngoai API (giong ntHash) - xem
+    // TeamResponse va CarStatusController.
+    @Column(name = "car_api_key")
+    private String carApiKey;
+
     public Integer getId() { return id; }
     public void setId(Integer id) { this.id = id; }
 
@@ -73,4 +81,7 @@ public class Team {
 
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
+
+    public String getCarApiKey() { return carApiKey; }
+    public void setCarApiKey(String carApiKey) { this.carApiKey = carApiKey; }
 }

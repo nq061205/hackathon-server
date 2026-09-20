@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { useI18n } from "../i18n/I18nContext";
 
 function runningRunFor(runs, teamId) {
@@ -7,29 +7,22 @@ function runningRunFor(runs, teamId) {
 
 const MAC_RE = /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/;
 
+// Nhat ky thao tac (audit) khong con tu poll REST rieng nua — data.audit
+// duoc hooks/useRaceData.js nhan qua WebSocket (topic /topic/admin/audit,
+// day moi ~500ms), giong het cach teams/runs/board duoc dong bo. "Lam moi"
+// chi con goi refresh() (REST) cho phan teams/runs — audit tu cap nhat.
 export default function AdminConsole({ data, client, refresh, onUnauthorized }) {
   const { t } = useI18n();
   const [busy, setBusy] = useState(null); // key thao tac dang chay
   const [toasts, setToasts] = useState([]);
-  const [audit, setAudit] = useState([]);
-  const [auditSeq, setAuditSeq] = useState(0); // dem de nap lai audit
   const [macDrafts, setMacDrafts] = useState({}); // teamId -> gia tri dang go (chua luu)
+  const audit = data.audit || [];
 
   const pushToast = useCallback((msg, type = "ok") => {
     const id = `${Date.now()}-${type}-${msg.length}`;
     setToasts((x) => [...x, { id, msg, type }]);
     setTimeout(() => setToasts((x) => x.filter((tt) => tt.id !== id)), 3200);
   }, []);
-
-  const loadAudit = useCallback(async () => {
-    if (!client) return;
-    try {
-      const r = await client.audit(0, 12);
-      setAudit(r.content || []);
-    } catch { /* im lang */ }
-  }, [client]);
-
-  useEffect(() => { loadAudit(); }, [loadAudit, auditSeq]);
 
   const act = useCallback(async (key, fn, okMsg) => {
     if (!client) return;
@@ -38,7 +31,7 @@ export default function AdminConsole({ data, client, refresh, onUnauthorized }) 
       await fn();
       pushToast(okMsg, "ok");
       refresh();
-      setAuditSeq((n) => n + 1);
+      // audit se tu cap nhat qua WebSocket trong ~500ms, khong can tu nap lai
     } catch (e) {
       if (e && e.status === 401) { if (onUnauthorized) onUnauthorized(); return; }
       if (e && e.status === 403) { pushToast(t("admin.forbidden"), "err"); return; }
@@ -47,6 +40,25 @@ export default function AdminConsole({ data, client, refresh, onUnauthorized }) 
       setBusy(null);
     }
   }, [client, refresh, pushToast, onUnauthorized, t]);
+
+  // Sinh moi car_api_key cho 1 doi (rieng, khong dung "act" chung vi can
+  // hien thi lai chia khoa cho admin copy - chi tra ve DUY NHAT 1 lan).
+  const genCarKey = useCallback(async (tm) => {
+    if (!client) return;
+    if (!window.confirm(t("admin.confirmCarKey"))) return;
+    setBusy(`key${tm.id}`);
+    try {
+      const res = await client.teamCarKey(tm.id);
+      window.prompt(t("admin.carKeyPrompt") + " " + tm.teamName + ":", res.carApiKey);
+      pushToast(t("toast.done"), "ok");
+    } catch (e) {
+      if (e && e.status === 401) { if (onUnauthorized) onUnauthorized(); return; }
+      if (e && e.status === 403) { pushToast(t("admin.forbidden"), "err"); return; }
+      pushToast(`${t("toast.fail")}${e && e.message ? " · " + e.message : ""}`, "err");
+    } finally {
+      setBusy(null);
+    }
+  }, [client, pushToast, onUnauthorized, t]);
 
   const saveMac = useCallback((tm, value) => {
     const trimmed = value.trim();
@@ -115,6 +127,11 @@ export default function AdminConsole({ data, client, refresh, onUnauthorized }) 
                     onClick={() => act(`open${tm.id}`, () => client.runOpen(tm.id), t("toast.done"))}>
                     {t("admin.openRun")}
                   </button>
+                  <button className="btn sm" disabled={busy != null}
+                    title={t("admin.carKeyHint")}
+                    onClick={() => genCarKey(tm)}>
+                    {t("admin.carKeyBtn")}
+                  </button>
                 </div>
               </div>
             );
@@ -132,6 +149,11 @@ export default function AdminConsole({ data, client, refresh, onUnauthorized }) 
                 <small className="num">run #{r.id} · {fmtTime(r.startedAt)}</small>
               </div>
               <div className="adm-actions">
+                <button className="btn sm" disabled={busy != null || !!r.carStartRequestedAt}
+                  title={t("admin.carStartHint")}
+                  onClick={() => act(`car${r.id}`, () => client.runCarStart(r.id), t("toast.done"))}>
+                  {r.carStartRequestedAt ? t("admin.carStarted") : t("admin.carStart")}
+                </button>
                 <button className="btn sm go-btn" disabled={busy != null}
                   onClick={() => act(`fin${r.id}`, () => client.runFinish(r.id), t("toast.done"))}>
                   {t("admin.finish")}
@@ -151,7 +173,7 @@ export default function AdminConsole({ data, client, refresh, onUnauthorized }) 
         <div className="head">
           <div className="title">{t("admin.audit")}</div>
           <div className="spacer" />
-          <button className="btn sm" onClick={() => setAuditSeq((n) => n + 1)}>{t("admin.refresh")}</button>
+          <button className="btn sm" onClick={refresh}>{t("admin.refresh")}</button>
         </div>
         <div className="audit-wrap">
           {audit.length === 0 ? (

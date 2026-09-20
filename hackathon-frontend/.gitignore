@@ -5,3 +5,7 @@ dist/
 *.log
 .DS_Store
 .vite/
+
+# Tauri (desktop wrapper)
+src-tauri/target/
+src-tauri/gen/
