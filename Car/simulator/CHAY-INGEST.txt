@@ -1,0 +1,150 @@
+=====================================================================
+  CHẠY MÁY CHỦ NHẬN LOG (ingest_server.py)
+  Runbook ngắn + cách dò khi xe gửi mà không thấy dữ liệu.
+  Đây là tiến trình DUY NHẤT nhận gói tin từ xe. Nó không chạy thì
+  không dòng nào vào database, dù xe vào WiFi thành công.
+=====================================================================
+
+---------------------------------------------------------------------
+LỆNH CHẠY
+---------------------------------------------------------------------
+
+  Lúc thi thật:
+
+    python ingest_server.py --host 0.0.0.0 --port 9999 \
+        --validate-run --allow-file teams_ip.conf
+
+  Chạy thử một mình trên máy (không có xe thật):
+
+    python ingest_server.py --port 9999
+
+  Khởi động xong PHẢI thấy dòng:
+
+    LISTENING on 0.0.0.0:9999
+    [ingest] Tren xe, dat dia chi may chu la mot trong cac IP sau...
+               192.168.0.103:9999
+
+  Địa chỉ in ra ở đó chính là thứ điền vào cấu hình trên xe.
+
+
+---------------------------------------------------------------------
+HAI CÁI BẪY HAY GẶP NHẤT KHI TRIỂN KHAI LÊN XE THẬT
+---------------------------------------------------------------------
+
+BẪY 1 — Gắn nhầm vào 127.0.0.1
+
+  Triệu chứng: xe vào WiFi bình thường, gửi không báo lỗi gì (UDP
+  không có xác nhận), nhưng bên máy chủ 'nhan' đứng nguyên ở 0.
+
+  Nguyên nhân: 127.0.0.1 chỉ nhận gói từ CHÍNH máy chủ. Xe gửi tới IP
+  mạng LAN của máy chủ, hệ điều hành thấy không có ai lắng nghe ở địa
+  chỉ đó và vứt gói đi im lặng — không báo lỗi, không ghi log.
+
+  Cách nhận biết: dòng khởi động ghi "LISTENING on 127.0.0.1" và có
+  một khung sao (*) cảnh báo ngay bên dưới.
+
+  Sửa: thêm  --host 0.0.0.0
+
+  (Mặc định đã là 0.0.0.0. Chỉ dính bẫy này nếu ai đó đặt biến môi
+   trường HACKATHON_UDP_HOST=127.0.0.1 hoặc truyền tay --host.)
+
+
+BẪY 2 — Máy có nhiều bản Python, bản đang dùng thiếu psycopg2
+
+  Triệu chứng: chạy lệnh là tắt ngay, báo
+      ModuleNotFoundError: No module named 'psycopg2'
+  Hoặc tệ hơn: người chạy không để ý dòng lỗi, tưởng nó đang chạy
+  nền, trong khi thực ra KHÔNG CÓ GÌ lắng nghe ở cổng 9999.
+
+  Kiểm tra xem "python" đang là bản nào và có psycopg2 không:
+
+      python -c "import sys; print(sys.executable)"
+      python -c "import psycopg2; print('OK')"
+
+  Sửa — cài thư viện vào ĐÚNG bản Python đang dùng:
+
+      python -m pip install -r requirements.txt
+
+  Kiểm tra chắc chắn có tiến trình đang mở cổng (Windows):
+
+      netstat -an -p UDP | findstr 9999
+
+  Không ra dòng nào = chưa có gì lắng nghe.
+
+
+---------------------------------------------------------------------
+XE GỬI MÀ KHÔNG THẤY DỮ LIỆU — DÒ THEO SỐ 'nhan'
+---------------------------------------------------------------------
+
+Máy chủ in một dòng thống kê mỗi 2 giây. Số 'nhan' chia đôi nguyên
+nhân thành hai nhóm hoàn toàn khác nhau — xem nó TRƯỚC, đừng đoán.
+
+
+=== 'nhan' = 0  ->  gói CHƯA HỀ tới máy chủ (lỗi mạng, không phải code)
+
+  [ ] Máy chủ có đang chạy không, có gắn vào 0.0.0.0 không (BẪY 1, 2)
+
+  [ ] Tường lửa máy chủ chặn UDP vào. Trên Windows, mở PowerShell
+      quyền admin:
+        netsh advfirewall firewall add rule name="PitWall UDP" ^
+            dir=in action=allow protocol=UDP localport=9999
+
+  [ ] Xe có thấy máy chủ không — trên xe chạy:
+        ping <IP máy chủ>
+      Không ping được mà vẫn vào được Internet => nhiều khả năng router
+      đang bật AP isolation / client isolation (các thiết bị chỉ ra
+      Internet, không nói chuyện được với nhau). Vào cài đặt WiFi tắt đi.
+
+  [ ] Xe và máy chủ có cùng dải mạng không (vd cùng 192.168.0.x).
+
+  [ ] Xe có đang gửi đúng IP và đúng cổng không — kiểm tra lại cấu
+      hình trên xe, đừng để sót 127.0.0.1 từ lúc chạy thử.
+
+
+=== 'nhan' > 0 nhưng 'ghi' = 0  ->  gói TỚI RỒI nhưng bị loại
+
+  Xem bộ đếm nào đang tăng, mỗi cái một nguyên nhân:
+
+    bo_ipla      IP của xe chưa có trong teams_ip.conf
+                 (tên đội hiện trong ngoặc vuông)
+
+    MAO_DANH     team_id trong gói không khớp IP của xe.
+                 Log ghi rõ IP, đội thật, đội bị mạo danh.
+
+    run_la       Chưa mở lượt chạy, hoặc run_id trên xe sai.
+                 Chỉ xuất hiện khi chạy với --validate-run.
+
+    loi_parse    Gói sai định dạng hoặc dài quá 1400 byte.
+                 (tên đội hiện trong ngoặc vuông)
+
+    bo_flood     Xe gửi vượt 300 gói/giây -> kiểm tra vòng lặp
+                 trong code xe.
+
+    bo_day       NGHIÊM TRỌNG: hàng đợi đầy, database đang quá chậm
+                 và dữ liệu thật bắt đầu mất. Kiểm tra PostgreSQL ngay.
+
+    bo_fk        run_id hoặc team_id không tồn tại trong database.
+
+
+---------------------------------------------------------------------
+THỬ NHANH KHÔNG CẦN XE
+---------------------------------------------------------------------
+
+  Gửi thử một gói từ máy khác trong cùng mạng (thay IP, run_id,
+  team_id cho đúng):
+
+    python -c "import socket,json,time; \
+      socket.socket(socket.AF_INET,socket.SOCK_DGRAM).sendto( \
+      json.dumps({'run_id':1,'team_id':1,'sequence_no':0, \
+      'car_timestamp':int(time.time()*1000), \
+      'ai_result':{'x':0.0}}).encode(), ('192.168.0.103',9999))"
+
+  Thấy 'nhan' tăng 1 là đường mạng đã thông. Nếu 'nhan' tăng mà 'ghi'
+  không tăng thì xem lại bảng bộ đếm ở trên.
+
+
+=====================================================================
+  Pit Wall · Runbook chạy máy chủ nhận log
+  Xem thêm: teams_ip.conf.example (danh sách IP hợp lệ)
+            Pit-Wall-Chong-DDoS.docx (các lớp phòng vệ)
+=====================================================================
